@@ -2,54 +2,6 @@ import React, { useState, useEffect } from 'react';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import nlp from 'compromise';
 
-// Type definitions for Web Speech API
-interface SpeechRecognitionResult {
-  [index: number]: {
-    transcript: string;
-    confidence: number;
-    isFinal: boolean;
-  };
-  length: number;
-}
-
-interface SpeechRecognitionResultList {
-  item(index: number): SpeechRecognitionResult;
-  length: number;
-  [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-}
-
-interface SpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start(): void;
-  stop(): void;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-  onend: (() => void) | null;
-}
-
-interface SpeechRecognitionConstructor {
-  new(): SpeechRecognition;
-}
-
-// Extend the Window interface to include SpeechRecognition
-declare global {
-  interface Window {
-    SpeechRecognition?: SpeechRecognitionConstructor;
-    webkitSpeechRecognition?: SpeechRecognitionConstructor;
-  }
-}
-
 const MeetingAssistantApp: React.FC = () => {
   const [transcript, setTranscript] = useState('');
   const [contextData, setContextData] = useState<{ phrases: string[] }>({ phrases: [] });
@@ -62,18 +14,18 @@ const MeetingAssistantApp: React.FC = () => {
   const extractInterestingPhrases = (text: string) => {
     const doc = nlp(text);
     // Extract nouns and noun phrases
-    const phrases = doc.nouns().out('array');
-    return phrases;
+    const nouns = doc.nouns().out('array');
+    const nounPhrases = doc.sentences().terms().out('array');
+    return [...nouns, ...nounPhrases];
   };
 
   // Function to rank phrases by frequency and keep only the top 10
   const getTopPhrases = (phrases: string[]) => {
-    const phraseFrequency: { [key: string]: number } = {};
-
-    // Count frequency of each phrase
-    phrases.forEach((phrase) => {
-      phraseFrequency[phrase] = (phraseFrequency[phrase] || 0) + 1;
-    });
+    // Use reduce to count phrase frequency more efficiently
+    const phraseFrequency: { [key: string]: number } = phrases.reduce((acc, phrase) => {
+      acc[phrase] = (acc[phrase] || 0) + 1;
+      return acc;
+    }, {} as { [key: string]: number });
 
     // Convert to an array of { phrase, frequency } objects
     const phraseArray = Object.keys(phraseFrequency).map((phrase) => ({
@@ -92,22 +44,23 @@ const MeetingAssistantApp: React.FC = () => {
 
   const startTranscription = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
+
     if (!SpeechRecognition) {
       setError('Web Speech API is not supported in this browser.');
       return;
     }
-  
+
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
-  
+
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       const interimTranscript = Array.from(event.results)
         .map((result) => result[0].transcript)
         .join('');
-      setTranscript(interimTranscript);
+        // Update the transcript state by including the current transcript
+      setTranscript(prevTranscript => prevTranscript + interimTranscript);
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -116,7 +69,10 @@ const MeetingAssistantApp: React.FC = () => {
     };
 
     recognition.onend = () => {
-      setIsRecording(false);
+        // if the recording was not manually stopped, start it again
+        if (isRecording) {
+            recognition.start();
+        }
     };
 
     // Request microphone access
@@ -129,7 +85,7 @@ const MeetingAssistantApp: React.FC = () => {
         setError(null); // Clear any previous errors
       })
       .catch((err) => {
-        setError('Microphone access denied. Please allow microphone access to use this app.');
+        setError('Microphone access denied. Please check your browser settings to ensure microphone access is allowed for this site.');
         console.error('Microphone access error:', err);
       });
   };
@@ -139,6 +95,7 @@ const MeetingAssistantApp: React.FC = () => {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       setIsRecording(false);
+      setTranscript('')
     }
   };
 
