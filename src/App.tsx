@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import nlp from 'compromise';
 
@@ -50,45 +50,50 @@ declare global {
   }
 }
 
+// Function to extract interesting phrases using Compromise.js
+const extractInterestingPhrases = (text: string) => {
+  const doc = nlp(text);
+  // Extract nouns and noun phrases
+  const phrases = doc.nouns().out('array');
+  return phrases;
+};
+
+// Function to rank phrases by frequency and keep only the top 10
+const getTopPhrases = (phrases: string[]) => {
+  const phraseFrequency: { [key: string]: number } = {};
+
+  // Count frequency of each phrase
+  phrases.forEach((phrase) => {
+    phraseFrequency[phrase] = (phraseFrequency[phrase] || 0) + 1;
+  });
+
+  // Convert to an array of { phrase, frequency } objects
+  const phraseArray = Object.keys(phraseFrequency).map((phrase) => ({
+    phrase,
+    frequency: phraseFrequency[phrase],
+  }));
+
+  // Sort by frequency (descending)
+  phraseArray.sort((a, b) => b.frequency - a.frequency);
+
+  // Keep only the top 10 phrases
+  const topPhrases = phraseArray.slice(0, 10).map((item) => item.phrase);
+
+  return topPhrases;
+};
+
 const MeetingAssistantApp: React.FC = () => {
   const [transcript, setTranscript] = useState('');
-  const [contextData, setContextData] = useState<{ phrases: string[] }>({ phrases: [] });
   const [isRecording, setIsRecording] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = React.useRef<SpeechRecognition | null>(null);
 
-  // Function to extract interesting phrases using Compromise.js
-  const extractInterestingPhrases = (text: string) => {
-    const doc = nlp(text);
-    // Extract nouns and noun phrases
-    const phrases = doc.nouns().out('array');
-    return phrases;
-  };
-
-  // Function to rank phrases by frequency and keep only the top 10
-  const getTopPhrases = (phrases: string[]) => {
-    const phraseFrequency: { [key: string]: number } = {};
-
-    // Count frequency of each phrase
-    phrases.forEach((phrase) => {
-      phraseFrequency[phrase] = (phraseFrequency[phrase] || 0) + 1;
-    });
-
-    // Convert to an array of { phrase, frequency } objects
-    const phraseArray = Object.keys(phraseFrequency).map((phrase) => ({
-      phrase,
-      frequency: phraseFrequency[phrase],
-    }));
-
-    // Sort by frequency (descending)
-    phraseArray.sort((a, b) => b.frequency - a.frequency);
-
-    // Keep only the top 10 phrases
-    const topPhrases = phraseArray.slice(0, 10).map((item) => item.phrase);
-
-    return topPhrases;
-  };
+  // Derive interesting phrases from the transcript
+  const contextData = useMemo(
+    () => ({ phrases: getTopPhrases(extractInterestingPhrases(transcript)) }),
+    [transcript],
+  );
 
   const startTranscription = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -153,13 +158,6 @@ const MeetingAssistantApp: React.FC = () => {
     link.click();
     URL.revokeObjectURL(url);
   };
-
-  // Update context whenever transcript changes
-  useEffect(() => {
-    const phrases = extractInterestingPhrases(transcript);
-    const topPhrases = getTopPhrases(phrases);
-    setContextData({ phrases: topPhrases });
-  }, [transcript]);
 
   // Toggle dark mode
   const toggleDarkMode = () => {
